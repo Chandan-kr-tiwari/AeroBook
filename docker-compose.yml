@@ -1,0 +1,165 @@
+services:
+
+  mysql:
+    image: mysql:8
+    container_name: aerobook-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: aerobook-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  flight-service:
+    build: ../aeroBook-flight-service
+    container_name: aerobook-flight-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: docker
+      PORT: 3000
+      DATABASE_URL: mysql://aerobook_user:aerobook123!@mysql:3306/aerobook
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+    ports:
+      - "3000:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  user-service:
+    build: ../aeroBook-user-service
+    container_name: aerobook-user-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: docker
+      PORT: 3004
+      DATABASE_URL: mysql://user:user@mysql:3306/aerobook_users
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672
+    ports:
+      - "3004:3004"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  booking-service:
+    build: ../aeroBook-booking-service
+    container_name: aerobook-booking-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: docker
+      PORT: 3001
+      DATABASE_URL: mysql://aerobookbookinguser:aerobook@mysql:3306/aerobook_booking
+      AEROBOOK_FLIGHT_SERVICE: http://flight-service:3000
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      flight-service:
+        condition: service_started
+
+  payment-service:
+    build: ../aeroBook-payment-service
+    container_name: aerobook-payment-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: docker
+      PORT: 3002
+      DATABASE_URL: mysql://aerobookpaymentuser:payment@mysql:3306/aerobook_payment
+      AEROBOOK_FLIGHT_SERVICE: http://flight-service:3000
+      AEROBOOK_BOOKING_SERVICE: http://booking-service:3001
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+    ports:
+      - "3002:3002"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      flight-service:
+        condition: service_started
+      booking-service:
+        condition: service_started
+
+  notification-service:
+    build: ../aeroBook-notification-service
+    container_name: aerobook-notification-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: docker
+      PORT: 3003
+      DATABASE_URL: mysql://notification_user:noti@mysql:3306/notification_db
+      AEROBOOK_USER_SERVICE: http://user-service:3004
+      GMAIL_EMAIL: ${GMAIL_EMAIL}
+      GMAIL_PASS: ${GMAIL_PASS}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: admin
+      RABBITMQ_PASSWORD: admin123
+    ports:
+      - "3003:3003"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+
+  api-gateway:
+    build: ../aeroBook-api-gateway
+    container_name: aerobook-api-gateway
+    restart: unless-stopped
+    environment:
+      PORT: 3005
+      AEROBOOK_USER_SERVICE: http://user-service:3004
+      AEROBOOK_FLIGHT_SERVICE: http://flight-service:3000
+      AEROBOOK_BOOKING_SERVICE: http://booking-service:3001
+      AEROBOOK_PAYMENT_SERVICE: http://payment-service:3002
+    ports:
+      - "3005:3005"
+    depends_on:
+      - user-service
+      - flight-service
+      - booking-service
+      - payment-service
+
+volumes:
+  mysql_data:
