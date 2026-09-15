@@ -95,8 +95,6 @@ manual DB setup, no per-service `npm install` + `npm run migrate` dance.
 | Notification Service | `http://localhost:3003` |
 | RabbitMQ management UI | `http://localhost:15672` (`admin` / `admin123`) |
 
-> Fill in once available: a Postman collection link and seeded admin demo
-> credentials, so a reviewer can hit the API without registering an account.
 
 **Note on local repo structure:** the current setup expects six separate
 clones kept in sync by folder name. Consolidating these into git submodules
